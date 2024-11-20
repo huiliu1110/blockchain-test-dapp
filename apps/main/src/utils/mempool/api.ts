@@ -39,7 +39,6 @@ function validateAddressUrl(address: string): URL {
   return new URL(`${mempoolAPI}v1/validate-address/${address}`)
 }
 
-
 type DecodePsbtResult = {
   tx: {
     txid: string

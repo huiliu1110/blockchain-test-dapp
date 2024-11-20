@@ -16,7 +16,6 @@ This Turborepo includes the following packages/apps:
 
 Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
 
-
 ### Build
 
 To build all apps and packages, run the following command:

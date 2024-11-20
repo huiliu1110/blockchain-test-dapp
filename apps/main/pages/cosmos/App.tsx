@@ -170,7 +170,7 @@ export default function App() {
           type: 'tendermint/PubKeySecp256k1',
           value: toBase64(Buffer.from(publicKey, 'hex')),
         },
-        chain.bech32_prefix,
+        chain.bech32_prefix || '',
       )
       console.log('pubkeyAddress', pubkeyAddress)
       await updateBalances(address)
