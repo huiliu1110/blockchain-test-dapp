@@ -29,6 +29,8 @@ export type State = {
   amount: string
   memo: string
   fee: string
+  rawTx: Record<string, string | boolean | number>
+  rawTxHash: string
   signature: string
 }
 
@@ -41,17 +43,21 @@ export type Action =
   | { type: 'SET_AMOUNT'; payload: string }
   | { type: 'SET_MEMO'; payload: string }
   | { type: 'SET_FEE'; payload: string }
+  | { type: 'SET_RAW_TX'; payload: Record<string, string | boolean | number> }
+  | { type: 'SET_RAW_TX_HASH'; payload: string }
   | { type: 'SET_SIGNATURE'; payload: string }
 
 export const initialState: State = {
   mnemonic: [],
   version: WalletVersion.V5R1,
   wallet: {} as Wallet,
-  token: 'AIOTX',
+  token: 'TON',
   recipient: '0QAybjHWkd6dQazm5Sod1Ljax5sJtiGa83WYo-hyfini2sYa',
   amount: '0.01',
   memo: '',
   fee: '',
+  rawTx: {},
+  rawTxHash: '',
   signature: '',
 }
 
@@ -73,6 +79,10 @@ export function reducer(state: State, action: Action): State {
       return { ...state, memo: action.payload }
     case 'SET_FEE':
       return { ...state, fee: action.payload }
+    case 'SET_RAW_TX':
+      return { ...state, rawTx: action.payload }
+    case 'SET_RAW_TX_HASH':
+      return { ...state, rawTxHash: action.payload }
     case 'SET_SIGNATURE':
       return { ...state, signature: action.payload }
     default:

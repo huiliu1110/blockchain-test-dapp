@@ -9,6 +9,8 @@ import {
 export function SignTx({
   recipient,
   amount,
+  rawTx,
+  rawTxHash,
   onRecipientChange,
   onAmountChange,
   onMemoChange,
@@ -17,6 +19,8 @@ export function SignTx({
 }: {
   recipient: string
   amount: string
+  rawTx: string
+  rawTxHash: string
   fee: string
   signature: string
   onRecipientChange: React.ChangeEventHandler<HTMLInputElement>
@@ -33,7 +37,7 @@ export function SignTx({
         <RadioGroup
           id="radio-group-token"
           className="flex"
-          defaultValue={'AIOTX'}
+          defaultValue={'TON'}
           onClick={onTokenChange}
         >
           {['TON', 'AIOTX'].map((token) => (
@@ -71,6 +75,14 @@ export function SignTx({
       <Button variant="default" onClick={onSignTx} className="mt-2">
         Sign Tx
       </Button>
+      <div className="gap-1.5">
+        <Label htmlFor="tx">Tx:</Label>
+        <div className="rounded bg-muted text-sm break-all">{rawTx}</div>
+      </div>
+      <div className="gap-1.5">
+        <Label htmlFor="tx">Tx Hash:</Label>
+        <code className="rounded bg-muted text-sm break-all">{rawTxHash}</code>
+      </div>
     </div>
   )
 }

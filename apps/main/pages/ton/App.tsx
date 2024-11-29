@@ -16,15 +16,7 @@ import { WalletInfo } from './components/WalletInfo'
 import { Mnemonic } from './components/Mnemonic'
 import { SignTx } from './components/SignTx'
 import { deriveED25519Path } from './ed25519'
-import {
-  Address,
-  internal,
-  toNano,
-  comment,
-  SendMode,
-  beginCell,
-  Cell,
-} from '@ton/core'
+import { Address, internal, toNano, SendMode, beginCell } from '@ton/core'
 import { TonClient } from '@ton/ton/dist/client/TonClient'
 import { getHttpEndpoint } from '@orbs-network/ton-access'
 
@@ -185,52 +177,84 @@ const getJettonBalance = async (
 const tonTransfer = async (
   client: TonClient,
   wallet: WalletContractV5R1,
-  secretKey: Buffer,
   params: {
-    jettonMasterAddress: Address
-    toAddress: Address
-    amount: bigint
-    responseAddress?: Address
-    forwardAmount?: bigint
-    forwardPayload?: Cell
+    toAddress: string
+    amount: string
+    memo: string
+    jettonMasterAddress?: string
+    responseAddress?: string
+    forwardAmount?: string
+    forwardPayload?: string
   },
 ) => {
   // Send transaction
   const walletContract = client.open(wallet)
   const seqno = await walletContract.getSeqno()
 
-  return walletContract.sendTransfer({
-    secretKey: secretKey,
+  const timeout = 1732852848
+  const sendMode = SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS
+
+  const transaction = await walletContract.createTransfer({
     seqno,
     messages: [
       internal({
-        to: params.toAddress,
-        value: params.amount, // Convert amount to nanotons
-        body: comment('test'), // Optional comment
+        to: Address.parse(params.toAddress),
+        value: toNano(params.amount),
+        body: params.memo || '',
         bounce: true,
       }),
     ],
-    sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
-    timeout: Math.floor(Date.now() / 1000) + 600,
+    sendMode,
+    timeout,
+    authType: 'extension',
   })
+
+  const rawTx = {
+    toAddress: params.toAddress,
+    value: params.amount,
+    memo: params.memo,
+    seqno,
+    sendMode,
+    timeout,
+    authType: 'extension',
+    bounce: true,
+  }
+  const rawTxHash = Buffer.from(transaction.hash()).toString('hex')
+
+  return { rawTx, rawTxHash }
+
+  // return walletContract.sendTransfer({
+  //   secretKey: secretKey,
+  //   seqno,
+  //   messages: [
+  //     internal({
+  //       to: params.toAddress,
+  //       value: params.amount, // Convert amount to nanotons
+  //       body: comment('test'), // Optional comment
+  //       bounce: true,
+  //     }),
+  //   ],
+  //   sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+  //   timeout: Math.floor(Date.now() / 1000) + 600,
+  // })
 }
 
 const jettonTransfer = async (
   client: TonClient,
   wallet: WalletContractV5R1,
-  secretKey: Buffer,
   params: {
-    jettonMasterAddress: Address
-    toAddress: Address
-    amount: bigint
-    responseAddress?: Address
-    forwardAmount?: bigint
-    forwardPayload?: Cell
+    toAddress: string
+    amount: string
+    memo: string
+    jettonMasterAddress: string
+    responseAddress?: string
+    forwardAmount?: string
+    forwardPayload?: string
   },
 ) => {
   // Get sender's jetton wallet address
   const jettonWalletAddressCell = await client.runMethod(
-    params.jettonMasterAddress,
+    Address.parse(params.jettonMasterAddress),
     'get_wallet_address',
     [
       {
@@ -241,15 +265,19 @@ const jettonTransfer = async (
   )
   const jettonWalletAddress = jettonWalletAddressCell.stack.readAddress()
 
+  const responseAddress = params.responseAddress
+    ? Address.parse(params.responseAddress)
+    : wallet.address
+  const forwardAmount = params.forwardAmount ? toNano(params.forwardAmount) : 0n
   // Prepare transfer message body
   const transferBody = beginCell()
     .storeUint(0xf8a7ea5, 32) // transfer op code
     .storeUint(0, 64) // query id
-    .storeCoins(params.amount) // amount
-    .storeAddress(params.toAddress) // destination address
-    .storeAddress(params.responseAddress || wallet.address) // response address
+    .storeCoins(toNano(params.amount)) // amount
+    .storeAddress(Address.parse(params.toAddress)) // destination address
+    .storeAddress(responseAddress) // response address
     .storeBit(false) // custom payload
-    .storeCoins(params.forwardAmount || 0n) // forward amount
+    .storeCoins(forwardAmount) // forward amount
     .storeBit(false) // forward payload, storeMaybeRef put 1 bit before cell (forward_payload in cell) or 0 for null (forward_payload in slice)
     .endCell()
 
@@ -257,20 +285,51 @@ const jettonTransfer = async (
   const walletContract = client.open(wallet)
   const seqno = await walletContract.getSeqno()
 
-  return walletContract.sendTransfer({
-    secretKey,
-    seqno,
+  const timeout = 1732852848
+  const sendMode = SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS
+
+  const transaction = await walletContract.createTransfer({
+    seqno, // Transaction sequence number
     messages: [
       internal({
-        to: jettonWalletAddress,
-        value: toNano('0.05'), // Attach TON for gas
-        body: transferBody,
-        bounce: true,
+        to: jettonWalletAddress, // Destination jetton wallet address
+        value: toNano('0.06'), // Attach TON for gas
+        body: transferBody, // The transfer message body
+        bounce: true, // Bounce option
       }),
     ],
-    sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
-    timeout: Math.floor(Date.now() / 1000) + 600,
+    sendMode, // Send mode options
+    timeout, // Transaction timeout
+    authType: 'extension',
   })
+
+  const rawTx = {
+    ...params,
+    seqno,
+    sendMode,
+    timeout,
+    authType: 'extension',
+    bounce: true,
+    tonAmount: '0.06',
+  }
+  const rawTxHash = Buffer.from(transaction.hash()).toString('hex')
+
+  return { rawTx, rawTxHash }
+
+  // return walletContract.sendTransfer({
+  //   secretKey,
+  //   seqno,
+  //   messages: [
+  //     internal({
+  //       to: jettonWalletAddress,
+  //       value: toNano('0.05'), // Attach TON for gas
+  //       body: transferBody,
+  //       bounce: true,
+  //     }),
+  //   ],
+  //   sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+  //   timeout: Math.floor(Date.now() / 1000) + 600,
+  // })
 }
 
 export default function App() {
@@ -326,7 +385,6 @@ export default function App() {
 
   const onSignTx = async () => {
     try {
-      const { secretKey } = await mnemonicToKeyPair(state.mnemonic.join(' '))
       const wallet = state.wallet.wallet as WalletContractV5R1
       const toAddress = state.recipient
       const amount = state.amount
@@ -334,12 +392,21 @@ export default function App() {
 
       const token = state.token ?? 'AIOTX'
       const transfer = token === 'AIOTX' ? jettonTransfer : tonTransfer
-      transfer(client, wallet, secretKey, {
-        jettonMasterAddress: Address.parse(
-          'kQAiboDEv_qRrcEdrYdwbVLNOXBHwShFbtKGbQVJ2OKxY_Di',
-        ),
-        toAddress: Address.parse(toAddress),
-        amount: toNano(amount),
+      const { rawTx, rawTxHash } = await transfer(client, wallet, {
+        jettonMasterAddress: 'kQAiboDEv_qRrcEdrYdwbVLNOXBHwShFbtKGbQVJ2OKxY_Di',
+        toAddress: toAddress,
+        amount: amount,
+        memo: 'test123',
+      })
+      console.log('rawTx', rawTx)
+      console.log('rawTxHash', rawTxHash)
+      dispatch({
+        type: 'SET_RAW_TX',
+        payload: rawTx,
+      })
+      dispatch({
+        type: 'SET_RAW_TX_HASH',
+        payload: rawTxHash,
       })
     } catch (error) {
       toast({
@@ -374,6 +441,8 @@ export default function App() {
       <SignTx
         recipient={state.recipient}
         amount={state.amount}
+        rawTx={JSON.stringify(state.rawTx, null, 2)}
+        rawTxHash={state.rawTxHash}
         fee={state.fee}
         signature={state.signature}
         onRecipientChange={(e) => {
