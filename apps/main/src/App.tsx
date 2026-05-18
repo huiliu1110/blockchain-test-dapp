@@ -30,6 +30,9 @@ function App() {
             <li>
               <a href="./pages/ton/">ton</a>
             </li>
+            <li>
+              <a href="./pages/eth/">eth</a>
+            </li>
           </ul>
         </div>
       </div>

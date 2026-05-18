@@ -35,6 +35,7 @@ export default defineConfig({
         bip370: path.resolve(__dirname, 'pages/bip370/index.html'),
         cosmos: path.resolve(__dirname, 'pages/cosmos/index.html'),
         ton: path.resolve(__dirname, 'pages/ton/index.html'),
+        eth: path.resolve(__dirname, 'pages/eth/index.html'),
       },
     },
   },
