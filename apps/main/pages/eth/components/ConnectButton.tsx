@@ -86,9 +86,18 @@ export function ConnectButton({
 
     connector.emitter.on('message', onMessage)
 
-    type WcProvider = Awaited<ReturnType<typeof connector.getProvider>> & {
-      events?: { on: (event: string, cb: (uri: string) => void) => void; off: (event: string, cb: (uri: string) => void) => void }
-      signer?: { on: (event: string, cb: (uri: string) => void) => void; off: (event: string, cb: (uri: string) => void) => void }
+    type WcProvider = {
+      session?: unknown
+      on: (event: string, cb: (uri: string) => void) => void
+      off: (event: string, cb: (uri: string) => void) => void
+      events?: {
+        on: (event: string, cb: (uri: string) => void) => void
+        off: (event: string, cb: (uri: string) => void) => void
+      }
+      signer?: {
+        on: (event: string, cb: (uri: string) => void) => void
+        off: (event: string, cb: (uri: string) => void) => void
+      }
     }
 
     let provider: WcProvider | undefined

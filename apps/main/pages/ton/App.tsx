@@ -104,10 +104,16 @@ export const walletAddressToString = (
   network: Network = Network.TESTNET,
 ) => {
   if (!address) return ''
-  return address.toString({
+  // @ton/core types split `testOnly` across lines in Address.d.ts
+  const toString = address.toString as (args?: {
+    urlSafe?: boolean
+    bounceable?: boolean
+    testOnly?: boolean
+  }) => string
+  return toString({
     urlSafe: true,
     bounceable: false,
-    testOnly: network === Network.TESTNET, // mainnet or testnet
+    testOnly: network === Network.TESTNET,
   })
 }
 

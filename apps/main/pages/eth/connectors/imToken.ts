@@ -47,6 +47,12 @@ function getImTokenProvider(): EthereumProvider | undefined {
   return provider
 }
 
+function getProviderOrThrow(): EthereumProvider {
+  const provider = getImTokenProvider()
+  if (!provider) throw new ProviderNotFoundError()
+  return provider
+}
+
 function parseAccountInfoResponse(
   data: unknown,
 ): Pick<ImTokenAccountInfo, 'identifier' | 'address'> {
@@ -77,8 +83,8 @@ function parseStoredAccountInfo(data: unknown): ImTokenAccountInfo {
 
 async function fetchChainId(provider: EthereumProvider): Promise<number> {
   const chainId = await provider.request({ method: 'eth_chainId' })
-  if (typeof chainId === 'string') {
-    return fromHex(chainId, 'number')
+  if (typeof chainId === 'string' && chainId.startsWith('0x')) {
+    return fromHex(chainId as `0x${string}`, 'number')
   }
   return Number(chainId)
 }
@@ -87,9 +93,9 @@ imToken.type = 'imToken' as const
 
 export function imToken() {
   let accountInfo: ImTokenAccountInfo | undefined
-  let accountsChanged: ((accounts: string[]) => void) | undefined
-  let chainChanged: ((chainId: string) => void) | undefined
-  let disconnect: ((error?: unknown) => void) | undefined
+  let accountsChanged: ((...args: unknown[]) => void) | undefined
+  let chainChanged: ((...args: unknown[]) => void) | undefined
+  let onDisconnectListener: ((...args: unknown[]) => void) | undefined
 
   return createConnector<EthereumProvider>((config) => ({
     id: 'imToken',
@@ -103,18 +109,46 @@ export function imToken() {
       }
     },
 
-    async connect({ chainId, isReconnecting } = {}) {
-      const provider = await this.getProvider()
-      if (!provider) throw new ProviderNotFoundError()
+    async connect<withCapabilities extends boolean = false>(
+      {
+        chainId,
+        isReconnecting,
+        withCapabilities: withCapabilitiesParam,
+      }: {
+        chainId?: number
+        isReconnecting?: boolean
+        withCapabilities?: boolean | withCapabilities
+      } = {},
+    ) {
+      const provider = getProviderOrThrow()
+
+      const toConnectResult = (
+        accounts: readonly Address[],
+        chainIdResult: number,
+      ) =>
+        ({
+          accounts: withCapabilitiesParam
+            ? accounts.map((address) => ({
+                address,
+                capabilities: {} as Record<string, unknown>,
+              }))
+            : accounts,
+          chainId: chainIdResult,
+        }) as {
+          accounts: withCapabilities extends true
+            ? readonly {
+                address: Address
+                capabilities: Record<string, unknown>
+              }[]
+            : readonly Address[]
+          chainId: number
+        }
 
       if (isReconnecting && accountInfo?.address) {
         const currentChainId = await fetchChainId(provider)
         accountInfo = { ...accountInfo, chainId: currentChainId }
         await config.storage?.setItem(STORAGE_KEY, accountInfo)
-        return {
-          accounts: [accountInfo.address],
-          chainId: currentChainId,
-        }
+        return toConnectResult([accountInfo.address], currentChainId)
       }
 
       try {
@@ -144,22 +178,25 @@ export function imToken() {
         }
 
         if (!accountsChanged) {
-          accountsChanged = this.onAccountsChanged.bind(this)
+          accountsChanged = (...args: unknown[]) => {
+            this.onAccountsChanged(args[0] as string[])
+          }
           provider.on?.('accountsChanged', accountsChanged)
         }
         if (!chainChanged) {
-          chainChanged = this.onChainChanged.bind(this)
+          chainChanged = (...args: unknown[]) => {
+            this.onChainChanged(args[0] as string)
+          }
           provider.on?.('chainChanged', chainChanged)
         }
-        if (!disconnect) {
-          disconnect = this.onDisconnect.bind(this)
-          provider.on?.('disconnect', disconnect)
+        if (!onDisconnectListener) {
+          onDisconnectListener = () => {
+            void this.onDisconnect()
+          }
+          provider.on?.('disconnect', onDisconnectListener)
         }
 
-        return {
-          accounts: [accountInfo.address],
-          chainId: currentChainId,
-        }
+        return toConnectResult([accountInfo.address], currentChainId)
       } catch (error) {
         const err = error as ProviderRpcError
         if (err?.code === 4001) {
@@ -170,7 +207,7 @@ export function imToken() {
     },
 
     async disconnect() {
-      const provider = await this.getProvider()
+      const provider = getImTokenProvider()
       accountInfo = undefined
       await config.storage?.removeItem(STORAGE_KEY)
 
@@ -182,9 +219,9 @@ export function imToken() {
         provider.removeListener('chainChanged', chainChanged)
         chainChanged = undefined
       }
-      if (disconnect && provider?.removeListener) {
-        provider.removeListener('disconnect', disconnect)
-        disconnect = undefined
+      if (onDisconnectListener && provider?.removeListener) {
+        provider.removeListener('disconnect', onDisconnectListener)
+        onDisconnectListener = undefined
       }
     },
 
@@ -196,8 +233,7 @@ export function imToken() {
     },
 
     async getChainId() {
-      const provider = await this.getProvider()
-      if (!provider) throw new ProviderNotFoundError()
+      const provider = getProviderOrThrow()
       const chainId = await fetchChainId(provider)
       if (accountInfo) {
         accountInfo = { ...accountInfo, chainId }
@@ -207,9 +243,7 @@ export function imToken() {
     },
 
     async getProvider() {
-      const provider = getImTokenProvider()
-      if (!provider) throw new ProviderNotFoundError()
-      return provider
+      return getProviderOrThrow()
     },
 
     async isAuthorized() {
@@ -217,7 +251,7 @@ export function imToken() {
     },
 
     async switchChain({ chainId }) {
-      const provider = await this.getProvider()
+      const provider = getProviderOrThrow()
       const chain = config.chains.find((c) => c.id === chainId)
       if (!chain) throw new SwitchChainError(new ChainNotConfiguredError())
 
@@ -248,8 +282,8 @@ export function imToken() {
         this.onDisconnect()
         return
       }
-      if (accountInfo) {
-        accountInfo = { ...accountInfo, address: getAddress(accounts[0]!) }
+      if (accountInfo && accounts[0]) {
+        accountInfo = { ...accountInfo, address: getAddress(accounts[0]) }
         void config.storage?.setItem(STORAGE_KEY, accountInfo)
       }
       config.emitter.emit('change', {
@@ -260,7 +294,7 @@ export function imToken() {
     onChainChanged(chainId) {
       const id =
         typeof chainId === 'string' && chainId.startsWith('0x')
-          ? fromHex(chainId, 'number')
+          ? fromHex(chainId as `0x${string}`, 'number')
           : Number(chainId)
       if (accountInfo) {
         accountInfo = { ...accountInfo, chainId: id }
