@@ -205,6 +205,7 @@ export function imToken() {
 
         return toConnectResult([accountInfo.address], currentChainId)
       } catch (error) {
+        console.log('error', error)
         const err = error as ProviderRpcError
         if (err?.code === 4001) {
           throw new UserRejectedRequestError(err)
@@ -268,6 +269,7 @@ export function imToken() {
           params: [{ chainId: numberToHex(chainId) }],
         })
       } catch (error) {
+        console.log('error', error)
         const err = error as ProviderRpcError
         if (err?.code === 4001) {
           throw new UserRejectedRequestError(err)
