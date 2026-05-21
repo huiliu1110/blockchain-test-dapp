@@ -9,6 +9,7 @@ import {
 
 type WalletInfoProps = {
   address?: string
+  walletId?: string
   chainId?: number
   chainName?: string
   balance?: { value: bigint; symbol: string; decimals: number }
@@ -19,6 +20,7 @@ type WalletInfoProps = {
 
 export function WalletInfo({
   address,
+  walletId,
   chainId,
   chainName,
   balance,
@@ -40,6 +42,12 @@ export function WalletInfo({
         <span>Address: </span>
         <code className="rounded bg-muted text-sm break-all">{address}</code>
       </div>
+      {walletId && (
+        <div className="mt-2">
+          <span>Wallet ID: </span>
+          <code className="rounded bg-muted text-sm break-all">{walletId}</code>
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span>Network: </span>
         <Select

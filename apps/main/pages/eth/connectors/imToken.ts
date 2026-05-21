@@ -2,7 +2,10 @@ import {
   ChainNotConfiguredError,
   createConnector,
   ProviderNotFoundError,
+  type Storage,
 } from 'wagmi'
+
+import { formatConnectionError } from '../utils/formatConnectionError'
 import {
   type Address,
   fromHex,
@@ -13,15 +16,12 @@ import {
   UserRejectedRequestError,
 } from 'viem'
 
-/** Response from `imToken_requestAccountInfo` (no chainId) */
-export type ImTokenAccountInfoResponse = {
-  identifier: string
-  address: string
-}
+/** Response from `imToken_requestWalletId` */
+export type ImTokenWalletIdResponse = string
 
 /** Persisted account info (`chainId` from `eth_chainId`) */
 export type ImTokenAccountInfo = {
-  identifier: string
+  walletId: string
   address: Address
   chainId: number
 }
@@ -38,7 +38,7 @@ type EthereumProvider = {
   ) => void
 }
 
-const STORAGE_KEY = 'imToken.accountInfo'
+export const IMTOKEN_STORAGE_KEY = 'imToken.accountInfo'
 
 function getImTokenProvider(): EthereumProvider | undefined {
   if (typeof window === 'undefined') return undefined
@@ -53,32 +53,29 @@ function getProviderOrThrow(): EthereumProvider {
   return provider
 }
 
-function parseAccountInfoResponse(
-  data: unknown,
-): Pick<ImTokenAccountInfo, 'identifier' | 'address'> {
-  if (!data || typeof data !== 'object') {
-    throw new Error('Invalid imToken account info response')
-  }
-  const { identifier, address } = data as ImTokenAccountInfoResponse
-  if (!identifier || !address) {
-    throw new Error('Invalid imToken account info response')
-  }
-  return { identifier, address: getAddress(address) }
-}
-
-function parseStoredAccountInfo(data: unknown): ImTokenAccountInfo {
+export function parseStoredAccountInfo(data: unknown): ImTokenAccountInfo {
   if (!data || typeof data !== 'object') {
     throw new Error('Invalid imToken account info storage')
   }
-  const { identifier, address, chainId } = data as ImTokenAccountInfo
-  if (!identifier || !address || typeof chainId !== 'number') {
+  const stored = data as ImTokenAccountInfo & { identifier?: string }
+  const walletId = stored.walletId ?? stored.identifier
+  const { address, chainId } = stored
+  if (!walletId || !address || typeof chainId !== 'number') {
     throw new Error('Invalid imToken account info storage')
   }
   return {
-    identifier,
+    walletId,
     address: getAddress(address),
     chainId,
   }
+}
+
+export async function readImTokenAccountInfo(
+  storage: Storage | null | undefined,
+): Promise<ImTokenAccountInfo | undefined> {
+  const stored = await storage?.getItem(IMTOKEN_STORAGE_KEY)
+  if (!stored) return undefined
+  return parseStoredAccountInfo(stored)
 }
 
 async function fetchChainId(provider: EthereumProvider): Promise<number> {
@@ -103,7 +100,7 @@ export function imToken() {
     type: imToken.type,
 
     async setup() {
-      const stored = await config.storage?.getItem(STORAGE_KEY)
+      const stored = await config.storage?.getItem(IMTOKEN_STORAGE_KEY)
       if (stored) {
         accountInfo = parseStoredAccountInfo(stored)
       }
@@ -147,20 +144,30 @@ export function imToken() {
       if (isReconnecting && accountInfo?.address) {
         const currentChainId = await fetchChainId(provider)
         accountInfo = { ...accountInfo, chainId: currentChainId }
-        await config.storage?.setItem(STORAGE_KEY, accountInfo)
+        await config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
         return toConnectResult([accountInfo.address], currentChainId)
       }
 
       try {
-        const result = await provider.request({
-          method: 'imToken_requestAccountInfo',
-          params: [],
+        const accounts = await provider.request({
+          method: 'eth_requestAccounts',
         })
-        const { identifier, address } = parseAccountInfoResponse(result)
+        if (!Array.isArray(accounts) || accounts.length === 0) {
+          throw new Error('No accounts returned from eth_requestAccounts')
+        }
+
+        const walletIdResult = await provider.request({
+          method: 'imToken_requestWalletId',
+        })
+        if (typeof walletIdResult !== 'string') {
+          throw new Error('Invalid imToken wallet id response')
+        }
+        const address = getAddress(accounts[0] as string)
+        const walletId = walletIdResult
 
         let currentChainId = await fetchChainId(provider)
 
-        accountInfo = { identifier, address, chainId: currentChainId }
+        accountInfo = { walletId, address, chainId: currentChainId }
 
         if (chainId && currentChainId !== chainId) {
           const chain = await this.switchChain!({ chainId }).catch((error) => {
@@ -171,7 +178,7 @@ export function imToken() {
           accountInfo = { ...accountInfo, chainId: currentChainId }
         }
 
-        await config.storage?.setItem(STORAGE_KEY, accountInfo)
+        await config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
 
         if (!config.chains.some((chain) => chain.id === currentChainId)) {
           throw new ChainNotConfiguredError()
@@ -202,14 +209,14 @@ export function imToken() {
         if (err?.code === 4001) {
           throw new UserRejectedRequestError(err)
         }
-        throw error
+        throw new Error(formatConnectionError(error))
       }
     },
 
     async disconnect() {
       const provider = getImTokenProvider()
       accountInfo = undefined
-      await config.storage?.removeItem(STORAGE_KEY)
+      await config.storage?.removeItem(IMTOKEN_STORAGE_KEY)
 
       if (accountsChanged && provider?.removeListener) {
         provider.removeListener('accountsChanged', accountsChanged)
@@ -237,7 +244,7 @@ export function imToken() {
       const chainId = await fetchChainId(provider)
       if (accountInfo) {
         accountInfo = { ...accountInfo, chainId }
-        void config.storage?.setItem(STORAGE_KEY, accountInfo)
+        void config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
       }
       return chainId
     },
@@ -265,13 +272,13 @@ export function imToken() {
         if (err?.code === 4001) {
           throw new UserRejectedRequestError(err)
         }
-        throw error
+        throw new Error(formatConnectionError(error))
       }
 
       const currentChainId = await fetchChainId(provider)
       if (accountInfo) {
         accountInfo = { ...accountInfo, chainId: currentChainId }
-        await config.storage?.setItem(STORAGE_KEY, accountInfo)
+        await config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
       }
 
       return chain
@@ -284,7 +291,7 @@ export function imToken() {
       }
       if (accountInfo && accounts[0]) {
         accountInfo = { ...accountInfo, address: getAddress(accounts[0]) }
-        void config.storage?.setItem(STORAGE_KEY, accountInfo)
+        void config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
       }
       config.emitter.emit('change', {
         accounts: accounts.map((a) => getAddress(a)),
@@ -298,7 +305,7 @@ export function imToken() {
           : Number(chainId)
       if (accountInfo) {
         accountInfo = { ...accountInfo, chainId: id }
-        void config.storage?.setItem(STORAGE_KEY, accountInfo)
+        void config.storage?.setItem(IMTOKEN_STORAGE_KEY, accountInfo)
       }
       config.emitter.emit('change', { chainId: id })
     },

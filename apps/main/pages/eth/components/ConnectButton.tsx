@@ -2,8 +2,10 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Cable, Smartphone, Unplug, Wallet } from 'lucide-react'
 import type { Connector } from 'wagmi'
-import { Button, useToast } from '@ui/components'
+import { Button } from '@ui/components'
 import { useConnect, useConnection, useConnectors, useDisconnect } from 'wagmi'
+
+import { formatConnectionError } from '../utils/formatConnectionError'
 
 function ConnectorButton({
   connector,
@@ -38,14 +40,15 @@ type ConnectButtonProps = {
   onWalletConnectStart: () => void
   onWalletConnectUri: (uri: string) => void
   onWalletConnectError: (message: string) => void
+  onConnectionError: (message: string | null) => void
 }
 
 export function ConnectButton({
   onWalletConnectStart,
   onWalletConnectUri,
   onWalletConnectError,
+  onConnectionError,
 }: ConnectButtonProps) {
-  const { toast } = useToast()
   const { address, isConnected, connector: activeConnector } = useConnection()
   const { connectAsync, isPending, variables } = useConnect()
   const { disconnect } = useDisconnect()
@@ -71,7 +74,12 @@ export function ConnectButton({
     )
   }
 
+  const reportError = (error: unknown) => {
+    onConnectionError(formatConnectionError(error))
+  }
+
   const handleWalletConnect = async (connector: Connector) => {
+    onConnectionError(null)
     onWalletConnectStart()
 
     const onUri = (uri: string) => {
@@ -124,9 +132,9 @@ export function ConnectButton({
 
       await connectAsync({ connector })
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'WalletConnect failed'
+      const message = formatConnectionError(error)
       onWalletConnectError(message)
+      onConnectionError(message)
     } finally {
       cleanup()
     }
@@ -134,17 +142,12 @@ export function ConnectButton({
 
   const handleImTokenConnect = async () => {
     if (!imTokenConnector) return
+    onConnectionError(null)
     setImTokenPending(true)
     try {
       await connectAsync({ connector: imTokenConnector })
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'imToken connection failed'
-      toast({
-        title: 'imToken connection failed',
-        description: message,
-        variant: 'destructive',
-      })
+      reportError(error)
     } finally {
       setImTokenPending(false)
     }
@@ -156,15 +159,12 @@ export function ConnectButton({
       return
     }
 
-    connectAsync({ connector }).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : 'Connection failed'
-      toast({
-        title: 'Connection failed',
-        description: message,
-        variant: 'destructive',
-      })
-    })
+    onConnectionError(null)
+    try {
+      await connectAsync({ connector })
+    } catch (error) {
+      reportError(error)
+    }
   }
 
   const pendingConnector =
